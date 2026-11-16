@@ -132,15 +132,15 @@ public final class CatalogueService {
      * @throws StorageException         if persistence fails; state is unchanged
      */
 
-public synchronized void delete(String id) {
-        Book.validateId(id);
-        if (!entries.containsKey(id)) {
-            throw new MissingBookException();
-        }
-        Map<String, Book> next = new LinkedHashMap<>(entries);
-        next.remove(id);
-        commit(next);
-        }
+    public synchronized void delete(String id) {
+            Book.validateId(id);
+            if (!entries.containsKey(id)) {
+                throw new MissingBookException();
+            }
+            Map<String, Book> next = new LinkedHashMap<>(entries);
+            next.remove(id);
+            commit(next);
+            }
     
 
     private void commit(Map<String, Book> next) {
