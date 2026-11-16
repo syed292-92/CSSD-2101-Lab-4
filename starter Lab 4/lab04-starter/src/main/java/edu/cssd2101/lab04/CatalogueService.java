@@ -104,10 +104,14 @@ public final class CatalogueService {
      * @throws StorageException if persistence fails; state is unchanged
      */
     public synchronized void delete(String id) {
-        // TODO T3 deletion: follow the task contract in the handout.
-        throw new UnsupportedOperationException("T3 deletion not implemented");
+        Book.validateId(id);
+        if (!entries.containsKey(id)) {
+            throw new MissingBookException();
+        }
+        Map<String, Book> next = new LinkedHashMap<>(entries);
+        next.remove(id);
+        commit(next);
     }
-
     private void commit(Map<String, Book> next) {
         port.save(List.copyOf(next.values()));
         entries = next;
