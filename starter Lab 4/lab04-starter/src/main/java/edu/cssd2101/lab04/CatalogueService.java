@@ -1,13 +1,10 @@
 package edu.cssd2101.lab04;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 
 /**
- * Application service: validates, builds a candidate, persists it, then publishes it. All public
+ * Application service: validates, builds a candidate, persists it, then
+ * publishes it. All public
  * operations use one monitor, serializing this process's writes and reads.
  */
 public final class CatalogueService {
@@ -49,13 +46,14 @@ public final class CatalogueService {
      *
      * @param id canonical UUID
      * @return matching book
-     * @throws MissingBookException if absent
+     * @throws MissingBookException     if absent
      * @throws IllegalArgumentException if the identifier is malformed
      */
     public synchronized Book find(String id) {
         Book.validateId(id);
         Book found = entries.get(id);
-        if (found == null) throw new MissingBookException();
+        if (found == null)
+            throw new MissingBookException();
         return found;
     }
 
@@ -65,10 +63,11 @@ public final class CatalogueService {
      * @param request validated during conversion
      * @return persisted new book
      * @throws IllegalArgumentException if the request is invalid
-     * @throws StorageException if persistence fails; state is unchanged
+     * @throws StorageException         if persistence fails; state is unchanged
      */
     public synchronized Book create(BookRequest request) {
-        if (request == null) throw new IllegalArgumentException("Request is required");
+        if (request == null)
+            throw new IllegalArgumentException("Request is required");
         String id;
         do {
             id = UUID.randomUUID().toString();
@@ -83,35 +82,60 @@ public final class CatalogueService {
     /**
      * Replaces all editable fields while preserving identity and ordering.
      *
-     * @param id existing canonical UUID
+     * @param id      existing canonical UUID
      * @param request replacement fields
      * @return persisted replacement
-     * @throws MissingBookException if absent
+     * @throws MissingBookException     if absent
      * @throws IllegalArgumentException if input is invalid
-     * @throws StorageException if persistence fails; state is unchanged
+     * @throws StorageException         if persistence fails; state is unchanged
      */
     public synchronized Book replace(String id, BookRequest request) {
         // TODO T2 replacement: follow the task contract in the handout.
-        throw new UnsupportedOperationException("T2 replacement not implemented");
+        if (id == null) {
+            throw new IllegalArgumentException("id is not properly defined");
+        }
+
+        // Validates the identifier format to ensure it conforms to required standards.
+        Book.validateId(id);
+
+        if (request == null) {
+            throw new IllegalArgumentException("request is not properly defined");
+        }
+
+        if (!entries.containsKey(id)) {
+            throw new MissingBookException();
+        }
+
+        // This line changes the request into a book object using the ID.
+        Book updatedbBook = request.toBook(id);
+
+        // copies current catalog records into a separate working map to prevent changes
+        // to original catologue
+        Map<String, Book> candidateMap = new LinkedHashMap<>(entries);
+
+        // Stores the updated book record under the target identifier inside the working
+        // copy
+        candidateMap.put(id, updatedbBook);
+
+        // Sends the modified working collection to persistence, saving records and
+        // updating live memory.
+        commit(candidateMap);
+        return updatedbBook;
     }
 
     /**
      * Deletes one existing entry.
      *
      * @param id existing canonical UUID
-     * @throws MissingBookException if absent
+     * @throws MissingBookException     if absent
      * @throws IllegalArgumentException if malformed
-     * @throws StorageException if persistence fails; state is unchanged
+     * @throws StorageException         if persistence fails; state is unchanged
      */
     public synchronized void delete(String id) {
-        Book.validateId(id);
-        if (!entries.containsKey(id)) {
-            throw new MissingBookException();
-        }
-        Map<String, Book> next = new LinkedHashMap<>(entries);
-        next.remove(id);
-        commit(next);
+        // TODO T3 deletion: follow the task contract in the handout.
+        throw new UnsupportedOperationException("T3 deletion not implemented");
     }
+
     private void commit(Map<String, Book> next) {
         port.save(List.copyOf(next.values()));
         entries = next;

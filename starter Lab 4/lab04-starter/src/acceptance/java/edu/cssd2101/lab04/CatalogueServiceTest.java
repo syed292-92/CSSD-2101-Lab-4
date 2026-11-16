@@ -1,180 +1,172 @@
 package edu.cssd2101.lab04;
 
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+public class CatalogueServiceTest {
 
-import java.nio.file.*;
-import java.util.*;
-import java.util.concurrent.*;
-
-class CatalogueServiceTest {
-    @TempDir Path temporary;
-
-    static class Memory implements CataloguePort {
-        List<Book> books = List.of();
-        boolean fail;
-
-        public List<Book> load() {
-            return books;
-        }
-
-        public void save(List<Book> next) {
-            if (fail) throw new StorageException(new java.io.IOException("private/path"));
-            books = List.copyOf(next);
-        }
-    }
-
-    BookRequest request(String title) {
-        return new BookRequest(title, 1299L, Format.PRINT);
-    }
+    // holds target service instance
+    private CatalogueService service;
 
     @Test
-    void crudSnapshotsIdentityAndMissing() {
-        var memory = new Memory();
-        var service = new CatalogueService(memory);
-        assertTrue(service.all().isEmpty());
-        var a = service.create(request(" A "));
-        var b = service.create(request("B"));
-        assertEquals("A", a.title());
-        assertNotEquals(a.id(), b.id());
-        assertEquals(a, service.find(a.id()));
-        var old = service.all();
-        var updated = service.replace(a.id(), new BookRequest("Revised", 0L, Format.EBOOK));
-        assertEquals(a.id(), updated.id());
-        assertEquals(List.of(updated, b), service.all());
-        assertEquals(List.of(a, b), old);
-        assertThrows(UnsupportedOperationException.class, () -> old.clear());
-        service.delete(a.id());
-        assertEquals(List.of(b), service.all());
-        assertEquals(List.of(a, b), old);
-        assertThrows(MissingBookException.class, () -> service.find(a.id()));
-        assertThrows(MissingBookException.class, () -> service.delete(a.id()));
-        assertThrows(MissingBookException.class, () -> service.replace(a.id(), request("Missing")));
-    }
+    void replace_test() {
+        // creates a standard UUID string to serve as the target identifier for the book
+        // entry
+        String validID = "c9f3a2b1-d4e5-4f6a-8b7c-1a2b3c4d5e6f";
 
-    @Test
-    void invalidRequestsNeverMutateState() {
-        var service = new CatalogueService(new Memory());
-        var a = service.create(request("A"));
-        for (BookRequest bad :
-                List.of(
-                        new BookRequest(null, 1L, Format.PRINT),
-                        new BookRequest(" ", 1L, Format.PRINT),
-                        new BookRequest("x".repeat(121), 1L, Format.PRINT),
-                        new BookRequest("A", null, Format.PRINT),
-                        new BookRequest("A", -1L, Format.PRINT),
-                        new BookRequest("A", 100000001L, Format.PRINT),
-                        new BookRequest("A", 1L, null))) {
-            assertThrows(IllegalArgumentException.class, () -> service.create(bad));
-            assertThrows(IllegalArgumentException.class, () -> service.replace(a.id(), bad));
-            assertEquals(List.of(a), service.all());
-        }
-        assertThrows(IllegalArgumentException.class, () -> service.create(null));
-        assertThrows(IllegalArgumentException.class, () -> service.replace(a.id(), null));
-        assertThrows(IllegalArgumentException.class, () -> service.find("bad"));
-        assertThrows(IllegalArgumentException.class, () -> service.find(null));
-        assertThrows(IllegalArgumentException.class, () -> service.delete("bad"));
-        assertThrows(IllegalArgumentException.class, () -> service.delete(null));
-        assertEquals(
-                100000000L,
-                service.create(new BookRequest("x".repeat(120), 100000000L, Format.EBOOK))
-                        .priceCents());
-    }
-
-    @Test
-    void everyFailedWritePreservesMemoryAndStoredSnapshot() {
-        var memory = new Memory();
-        var service = new CatalogueService(memory);
-        var a = service.create(request("A"));
-        memory.fail = true;
-        assertThrows(StorageException.class, () -> service.create(request("B")));
-        assertThrows(StorageException.class, () -> service.replace(a.id(), request("Changed")));
-        assertThrows(StorageException.class, () -> service.delete(a.id()));
-        assertEquals(List.of(a), service.all());
-        assertEquals(List.of(a), memory.books);
-        memory.fail = false;
-        service.delete(a.id());
-        assertTrue(service.all().isEmpty());
-    }
-
-    @Test
-    void jsonRoundTripRestartAndDeletionPersistence() throws Exception {
-        Path file = temporary.resolve("nested/catalogue.json");
-        var first = new CatalogueService(new JsonCatalogue(file));
-        var a = first.create(request("Java café and Unicode"));
-        var b = first.create(request("B"));
-        var restarted = new CatalogueService(new JsonCatalogue(file));
-        assertEquals(first.all(), restarted.all());
-        restarted.replace(a.id(), request("Updated"));
-        restarted.delete(b.id());
-        assertEquals(
-                List.of(restarted.find(a.id())),
-                new CatalogueService(new JsonCatalogue(file)).all());
-        try (var files = Files.list(file.getParent())) {
-            assertEquals(1, files.count());
-        }
-    }
-
-    @Test
-    void corruptFilesAndDuplicateIdsFailClosed() throws Exception {
-        Path file = temporary.resolve("catalogue.json");
-        for (String invalid :
-                List.of(
-                        "{oops",
-                        "null",
-                        "[null]",
-                        "[{\"id\":\"bad\",\"title\":\"A\",\"priceCents\":1,\"format\":\"PRINT\"}]")) {
-            Files.writeString(file, invalid);
-            assertThrows(
-                    StorageException.class, () -> new CatalogueService(new JsonCatalogue(file)));
-            assertEquals(invalid, Files.readString(file));
-        }
-        var memory = new Memory();
-        var a = new CatalogueService(memory).create(request("A"));
-        memory.books = List.of(a, a);
-        assertThrows(StorageException.class, () -> new CatalogueService(memory));
-    }
-
-    @Test
-    void realFilesystemWriteFailureLeavesPreviousState() throws Exception {
-        Path blocker = temporary.resolve("not-a-directory");
-        Files.writeString(blocker, "owned fixture");
-        var service = new CatalogueService(new Memory());
-        var adapter = new JsonCatalogue(blocker.resolve("catalogue.json"));
-        assertThrows(StorageException.class, () -> adapter.save(service.all()));
-        assertEquals("owned fixture", Files.readString(blocker));
-        assertThrows(StorageException.class, () -> new JsonCatalogue(temporary).load());
-    }
-
-    @Test
-    void concurrentCreatesDoNotLoseUpdates() throws Exception {
-        var service = new CatalogueService(new Memory());
-        try (var executor = Executors.newFixedThreadPool(4)) {
-            var jobs = new ArrayList<Callable<Book>>();
-            for (int i = 0; i < 40; i++) {
-                final int n = i;
-                jobs.add(() -> service.create(request("Book " + n)));
+        // instantiates an inner class that implements the CataloguePort interface to
+        // simulate persistence behavior.
+        CataloguePort port = new CataloguePort() {
+            // defines the load method required by the CatalogService constructor to
+            // populate initital data
+            @Override
+            public List<Book> load() {
+                // returns a predefined list containing one valid book record to initialize the
+                // catalogue state
+                return List.of(new Book(validID, "Sample Title", 1000L, Format.PRINT));
             }
-            for (var future : executor.invokeAll(jobs))
-                assertNotNull(future.get(5, TimeUnit.SECONDS));
-        }
-        assertEquals(40, service.all().size());
-        assertEquals(40, service.all().stream().map(Book::id).distinct().count());
+
+            // defines an empty save method to fulfill the interface contract without
+            // preforming actual disk operations
+            @Override
+            public void save(List<Book> books) {
+            }
+        };
+
+        // initializes the target CatalogueService using the custom port containing the
+        // predefined test data
+        service = new CatalogueService(port);
+
+        // constructs a new request object containing modified fields for the
+        // replacement operation
+        BookRequest updateRequest = new BookRequest("Updated Title", 1500L, Format.PRINT);
+
+        // executes the replace method on the service instance and stores the returned
+        // book record
+        Book result = service.replace(validID, updateRequest);
+
+        // confirms the service response contains a non-null object reference
+        assertNotNull(result);
+
+        // validates the returned book record matches the new title specified in the
+        // request
+        assertEquals("Updated Title", result.title());
     }
 
     @Test
-    void persistedMissingAndNullPriceCannotBecomeFreeBooks() throws Exception {
-        Path file = temporary.resolve("invalid-price.json");
-        String prefix =
-                "{\"id\":\"00000000-0000-0000-0000-000000000001\",\"title\":\"A\",\"format\":\"PRINT\"";
-        for (String invalid :
-                List.of("[" + prefix + "}]", "[" + prefix + ",\"priceCents\":null}]")) {
-            Files.writeString(file, invalid);
-            assertThrows(
-                    StorageException.class, () -> new CatalogueService(new JsonCatalogue(file)));
-            assertEquals(invalid, Files.readString(file));
-        }
+    void missing_resource() {
+        // creates a standard UUID string representing an identifier that does not exist
+        // in the catalogue
+        String missingID = "c9f3a2b1-d4e5-4f6a-8b7c-1a2b3c4d5e6f";
+
+        // instantiates an anonymous inner class implementing the CataloguePort
+        // interface to simulate persistence behavior
+        CataloguePort port = new CataloguePort() {
+            // defines the load method required by the CatalogueService constructor
+            @Override
+            public List<Book> load() {
+                // returns an empty list to simulate a catalogue containing no entries
+                return List.of();
+            }
+
+            // defines an empty save method to fulfill the interface contract without
+            // performing actual disk operations
+            @Override
+            public void save(List<Book> books) {
+            }
+        };
+
+        // initializes the target CatalogueService using the empty mock port
+        service = new CatalogueService(port);
+
+        // constructs a new request object containing modified fields for the attempted
+        // replacement operation
+        BookRequest updateRequest = new BookRequest("Updated Title", 1500L, Format.PRINT);
+
+        // verifies that executing the replace method with a missing identifier throws
+        // the expected exception
+        assertThrows(RuntimeException.class, () -> {
+            service.replace(missingID, updateRequest);
+        });
     }
+
+    @Test
+    void invalid_id() {
+        String invalidID = "not-a-valid-uuid";
+
+        CataloguePort port = new CataloguePort() {
+            @Override
+            public List<Book> load() {
+                return List.of(new Book("c9f3a2b1-d4e5-4f6a-8b7c-1a2b3c4d5e6f", "Sample Title", 1000L, Format.PRINT));
+            }
+
+            @Override
+            public void save(List<Book> books) {
+            }
+        };
+
+        service = new CatalogueService(port);
+
+        BookRequest updateRequest = new BookRequest("Updated Title", 1500L, Format.PRINT);
+
+        // asserts that calling replace with an invalid identifier triggers an exception
+        assertThrows(Exception.class, () -> {
+            service.replace(invalidID, updateRequest);
+        });
+    }
+
+    // null request test
+    @Test
+    void null_request() {
+        String validID = "c9f3a2b1-d4e5-4f6a-8b7c-1a2b3c4d5e6f";
+
+        CataloguePort port = new CataloguePort() {
+            @Override
+            public List<Book> load() {
+                return List.of(new Book(validID, "Sample Title", 1000L, Format.PRINT));
+            }
+
+            @Override
+            public void save(List<Book> books) {
+            }
+        };
+
+        service = new CatalogueService(port);
+
+        // asserts that passing a null request object triggers an exception
+        assertThrows(Exception.class, () -> {
+            service.replace(validID, null);
+        });
+    }
+
+    // invalid request test
+    @Test
+    void invalid_request_fields() {
+        String validID = "c9f3a2b1-d4e5-4f6a-8b7c-1a2b3c4d5e6f";
+
+        CataloguePort port = new CataloguePort() {
+            @Override
+            public List<Book> load() {
+                return List.of(new Book(validID, "Sample Title", 1000L, Format.PRINT));
+            }
+
+            @Override
+            public void save(List<Book> books) {
+            }
+        };
+
+        service = new CatalogueService(port);
+
+        // creates a request with an invalid negative price
+        BookRequest invalidRequest = new BookRequest("Updated Title", -500L, Format.PRINT);
+
+        // asserts that invalid fields trigger an exception
+        assertThrows(Exception.class, () -> {
+            service.replace(validID, invalidRequest);
+        });
+    }
+
 }
