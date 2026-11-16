@@ -48,6 +48,7 @@ class CatalogueServiceTest {
         assertThrows(UnsupportedOperationException.class, () -> old.clear());
         service.delete(a.id());
         assertEquals(List.of(b), service.all());
+        assertEquals(List.of(a, b), old);
         assertThrows(MissingBookException.class, () -> service.find(a.id()));
         assertThrows(MissingBookException.class, () -> service.delete(a.id()));
         assertThrows(MissingBookException.class, () -> service.replace(a.id(), request("Missing")));
@@ -74,6 +75,8 @@ class CatalogueServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.replace(a.id(), null));
         assertThrows(IllegalArgumentException.class, () -> service.find("bad"));
         assertThrows(IllegalArgumentException.class, () -> service.find(null));
+        assertThrows(IllegalArgumentException.class, () -> service.delete("bad"));
+        assertThrows(IllegalArgumentException.class, () -> service.delete(null));
         assertEquals(
                 100000000L,
                 service.create(new BookRequest("x".repeat(120), 100000000L, Format.EBOOK))
