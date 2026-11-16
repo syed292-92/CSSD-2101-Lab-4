@@ -15,6 +15,10 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.annotation.DirtiesContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import java.nio.file.Path;
+import java.util.UUID;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 /**
  * Full-stack HTTP boundary tests verifying raw JSON token rules, error
@@ -23,6 +27,12 @@ import tools.jackson.databind.ObjectMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class T1HttpBoundaryContractTest {
+
+    @DynamicPropertySource
+    static void useIsolatedCatalogue(DynamicPropertyRegistry registry) {
+    Path testFile = Path.of("target", "t1-http-" + UUID.randomUUID() + ".json").toAbsolutePath();
+        registry.add("catalogue.file", testFile::toString);
+    }
 
     @LocalServerPort
     private int port;
