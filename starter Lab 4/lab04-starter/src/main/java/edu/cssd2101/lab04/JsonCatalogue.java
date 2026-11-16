@@ -5,6 +5,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -45,7 +46,34 @@ public final class JsonCatalogue implements CataloguePort {
 
     @Override
     public void save(List<Book> books) {
-        // TODO T4 atomic snapshot persistence: follow the task contract in the handout.
-        throw new UnsupportedOperationException("T4 atomic snapshot persistence not implemented");
+        // Use a temporary file to avoid leaving a corrupted file if the process is interrupted
+        Path temporary = null;
+        try {
+            // Convert the list of books to JSON bytes
+            byte[] json = mapper.writeValueAsBytes(books);
+            // Get the parent directory of the target file and create it if it doesn't exist
+            Files.createDirectories(file.getParent());
+            // Create a temporary file in the same directory as the target file
+            temporary = Files.createTempFile(file.getParent(), ".catalogue-", ".tmp");
+            // Write the JSON data to the temporary file
+            Files.write(temporary, json);
+            // Move the temporary file to the target file atomically, replacing any existing file
+            Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        }
+        // Catch any exceptions that occur during the save process
+        catch (Exception failure) {
+            // Report failure 
+            throw new StorageException(failure);
+        }
+        finally {
+            // Attempt to delete the temporary file if it still exists
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (java.io.IOException ignored) {
+                    // Ignore failure to delete temporary file
+                }
+            }
+        }
     }
 }

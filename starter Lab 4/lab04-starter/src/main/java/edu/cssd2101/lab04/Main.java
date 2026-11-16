@@ -1,5 +1,7 @@
 package edu.cssd2101.lab04;
 
+import java.nio.file.Path;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -29,6 +31,7 @@ public class Main {
     @Bean
     public CatalogueService catalogueService(
             @Value("${catalogue.file:./data/catalogue.json}") String file) {
-        return new CatalogueService(new MemoryCatalogue());
+        // Uses JSON Storage instead of temporary storage
+        return new CatalogueService(new JsonCatalogue(Path.of(file)));
     }
 }
