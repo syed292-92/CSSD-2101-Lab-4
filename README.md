@@ -1,3 +1,64 @@
+## Task T1: Boundary Contract, Request Trace & State Preservation
+
+### 1. Trace: `POST /api/books` (JSON Tokens to Stored `Book`)
+1. **HTTP Reception (`CatalogueController`)**: Spring MVC matches `POST /api/books` with `Content-Type: application/json` and delegates payload deserialization to Jackson.
+2. **JSON Token Parsing (`BookRequest`)**:
+   - **Unknown Fields Rejected**: Unknown properties (such as an injected `id` field in the JSON body) fail immediately during deserialization.
+   - **Strict Numeric Tokens**: Coercion from floating-point tokens (`VALUE_NUMBER_FLOAT`, e.g., `12.99`) to integer `Long` is disabled so fractional cents fail at the parser rather than silently truncating.
+   - **Enum & Null Handling**: Only `"PRINT"` and `"EBOOK"` map to `Format`. Omitted or `null` `"priceCents"` remains `null` (`Long`) rather than defaulting to `0L`.
+3. **Identity Generation (`CatalogueService.create`)**: The service generates a canonical lower-case `UUID` (clients never supply identity on creation).
+4. **DTO Conversion & Invariant Validation (`BookRequest.toBook` -> `Book`)**:
+   - `BookRequest.toBook(id)` rejects any `null` fields before constructing `Book`.
+   - `Book` validates itself on construction: strips leading/trailing whitespace from `title`, enforces `1–120` non-whitespace characters, validates `priceCents` within `[0, 100_000_000]` CAD cents (stored as primitive `long`), and validates the canonical UUID format.
+5. **Candidate Copy & Commit (`CatalogueService` -> `CataloguePort`)**: Under the service monitor, `CatalogueService` copies the current map into a candidate `LinkedHashMap`, inserts the new `Book`, calls `port.save(...)`, and updates the live `entries` reference only after persistence succeeds.
+6. **HTTP Response (`CatalogueController` / `ApiErrors`)**:
+   - **201 Created**: Returns the stored `Book` JSON representation and a relative `Location` header (`/api/books/{id}`).
+   - **400 Bad Request**: Caught by `ApiErrors` and serialized strictly as a two-field JSON object (`code` and `message`) with no stack traces, exception class names, or filesystem paths.
+
+### 2. Why DTO Absence and Domain Validity Are Different Concerns
+- **DTO Absence (`BookRequest` uses `Long`)**: Over HTTP/JSON, a client can omit `"priceCents"` or send `"priceCents": null`. If `BookRequest` used primitive `long`, an omitted field would default to `0L`, making a **missing price** indistinguishable from an **explicitly free book (`0` cents)**. Using nullable `Long` preserves the distinction between *absent input* and *zero value* so conversion can reject `null`.
+- **Domain Validity (`Book` uses primitive `long`)**: Once validated across the boundary, absence has no place inside the domain model. Every valid `Book` in the catalogue must have a concrete price in `[0, 100_000_000]` cents. Storing primitive `long` inside `Book` makes an unpriced entry unrepresentable in memory across HTTP requests, direct service calls, and disk loading.
+
+### 3. Pre-Run Expected Outcome Matrix (Boundary Cases)
+
+| Test Case / Input Condition | Layer Tested | Expected Status / Outcome | Post-Request Catalogue State |
+| :--- | :--- | :--- | :--- |
+| `priceCents = 0` (Free book) | Service & HTTP | `201 Created` + relative `Location` | Book stored with `priceCents == 0L` |
+| `priceCents = 100000000` (Max price) | Service & HTTP | `201 Created` + relative `Location` | Book stored with `priceCents == 100_000_000L` |
+| `title = "  Effective Java  "` | Service & HTTP | `201 Created` | Stored title stripped to `"Effective Java"` |
+| `priceCents = null` (Missing price) | Service & HTTP | `400 Bad Request` (`code`, `message`) | Catalogue empty / prior snapshot unchanged |
+| `priceCents = 12.99` (Fractional cents) | HTTP Wire | `400 Bad Request` (`code`, `message`) | Catalogue empty / prior snapshot unchanged |
+| `priceCents = -1` or `100000001` | Service & HTTP | `400 Bad Request` (`code`, `message`) | Catalogue empty / prior snapshot unchanged |
+| `format = "AUDIOBOOK"` (Unknown format) | HTTP Wire | `400 Bad Request` (`code`, `message`) | Catalogue empty / prior snapshot unchanged |
+| `title = "   "` (Whitespace-only title) | Service & HTTP | `400 Bad Request` (`code`, `message`) | Catalogue empty / prior snapshot unchanged |
+| `id` supplied in request body | HTTP Wire | `400 Bad Request` (`code`, `message`) | Catalogue empty / prior snapshot unchanged |
+| Invalid `PUT` body on existing book | Service & HTTP | `400 Bad Request` (`code`, `message`) | Original `Book` snapshot completely unchanged |
+| Invalid `PUT` body on missing valid ID | Service & HTTP | `400 Bad Request` (400 precedes 404) | Validation runs before existence check |
+
+### 4. Reproducible Verification Commands & Results (T1)
+
+**Commands Executed (from `lab04-starter/`):**
+```powershell
+.\mvnw.cmd --version
+.\mvnw.cmd test "-Dtest=T1ServiceBoundaryTest,T1HttpBoundaryContractTest"
+.\mvnw.cmd clean verify javadoc:javadoc
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 4.637 s -- in edu.cssd2101.lab04.T1HttpBoundaryContractTest
+[INFO] Running edu.cssd2101.lab04.T1ServiceBoundaryTest
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.014 s -- in edu.cssd2101.lab04.T1ServiceBoundaryTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[INFO] Tests run: 24, Failures: 0, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] 
+[INFO] --- jar:3.5.1:jar (default-jar) @ lab04-starter ---
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  24.544 s
+[INFO] Finished at: 2026-11-16T19:53:17-05:00
+[INFO] ------------------------------------------------------------------------
+
 ### T4 — JSON persistence and adapter wiring
 
 We completed `JsonCatalogue.save()` to write the catalogue to a temporary JSON file, then atomically replace the destination file. Storage failures are wrapped in `StorageException`, and leftover temporary files are cleaned up without hiding the original result.
