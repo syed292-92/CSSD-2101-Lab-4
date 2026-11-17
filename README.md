@@ -1,3 +1,32 @@
+### T4 — JSON persistence and adapter wiring
+
+We completed `JsonCatalogue.save()` to write the catalogue to a temporary JSON file, then atomically replace the destination file. Storage failures are wrapped in `StorageException`, and leftover temporary files are cleaned up without hiding the original result.
+
+We updated `Main.catalogueService()` to use `JsonCatalogue` with the configured file path and kept `MemoryCatalogue` available as a test double.
+
+From starter Lab 4\lab04-starter, we ran the T4 tests:
+
+```powershell
+.\mvnw.cmd -Dtest=JsonCatalogueTest clean test
+```
+
+The test class passed with **13 tests, 0 failures, and 0 errors**. The tests used temporary directories and verified that:
+
+1. A missing file loaded an empty catalogue, and Unicode book titles were saved and loaded correctly.
+2. Updates and deletions remained saved when a new service instance loaded the file.
+3. Invalid JSON and duplicate stored IDs caused startup failure without changing the file.
+4. Filesystem write failures were reported, and temporary files were cleaned up after successful saves and failed moves.
+5. Main used the configured JSON file path.
+6. Failed creation, replacement, and deletion left both memory and stored data unchanged.
+
+The `FailingCatalogue` helper deliberately failed and threw an exception during saving to check that unsuccessful operations preserved the original series of books. These tests verify JSON persistence and state preservation, while T5 checks the packaged application through HTTP and actual process restarts.
+
+The successful atomic move is the point where the stored catalogue is replaced. This implementation assumes one application process owns the file and writes the entire catalogue on each save. Atomic replacement does not guarantee survival of sudden power loss.
+
+<img width="793" height="242" alt="image" src="https://github.com/user-attachments/assets/553b8b40-e2e1-46dd-a282-d23c2582c7c1" />
+
+T4 persistence tests, all 13 passed.
+
 ### T5 — Acceptance and packaged HTTP verification
 
 From starter Lab 4\lab04-starter, I ran the acceptance suite and built the application JAR:
